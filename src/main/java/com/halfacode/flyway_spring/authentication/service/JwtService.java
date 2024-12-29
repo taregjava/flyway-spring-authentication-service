@@ -3,6 +3,7 @@ package com.halfacode.flyway_spring.authentication.service;
 import com.halfacode.flyway_spring.authentication.dto.response.TokenResponseDto;
 import com.halfacode.flyway_spring.authentication.entity.User;
 import com.halfacode.flyway_spring.authentication.error.AuthError;
+import com.halfacode.flyway_spring.authentication.error.AuthException;
 import com.halfacode.flyway_spring.authentication.repository.UserRepository;
 import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -34,82 +35,61 @@ public class JwtService {
     private final UserRepository userRepository;
 
     public String generateToken(User user, int expirationDay, TokenType tokenType) {
-
-        Date now = new Date();
-
-        Instant nowInstant = now.toInstant();
-
-        Instant expirationInstant = nowInstant.plus(expirationDay, ChronoUnit.DAYS);
-
-        Date expirationTime = Date.from(expirationInstant);
-
-        JWSHeader header;
-
-        if (tokenType == TokenType.ACCESS_TOKEN) {
-
-            header = new JWSHeader(JWSAlgorithm.HS256);
-
-        } else {
-
-            header = new JWSHeader(JWSAlgorithm.HS512);
-
-        }
-
-        JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
-                .subject(user.getUsername())
-                .issuer("dev-white2077")
-                .issueTime(now)
-                .claim("avatar", user.getAvatar())
-                .claim("name", user.getName())
-                .claim("email", user.getEmail())
-                .expirationTime(expirationTime)
-                .jwtID(UUID.randomUUID().toString())
-                .subject(user.getUsername())
-                .audience(user.getUsername())
-                .claim("scope", buildScope(user))
-                .build();
-
-        Payload payload = new Payload(jwtClaimsSet.toJSONObject());
-
-        JWSObject jwsObject = new JWSObject(header, payload);
-
         try {
+            Date now = new Date();
+            Instant expirationInstant = now.toInstant().plus(expirationDay, ChronoUnit.DAYS);
+            Date expirationTime = Date.from(expirationInstant);
 
+            JWSHeader header = new JWSHeader(tokenType == TokenType.ACCESS_TOKEN
+                    ? JWSAlgorithm.HS256
+                    : JWSAlgorithm.HS512);
+
+            JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
+                    .subject(user.getUsername())
+                    .issuer("dev-white2077")
+                    .issueTime(now)
+                    .expirationTime(expirationTime)
+                    .audience(user.getUsername())
+                    .jwtID(UUID.randomUUID().toString())
+                    .claim("avatar", user.getAvatar())
+                    .claim("name", user.getName())
+                    .claim("email", user.getEmail())
+                    .claim("scope", buildScope(user))
+                    .build();
+
+            JWSObject jwsObject = new JWSObject(header, new Payload(jwtClaimsSet.toJSONObject()));
             jwsObject.sign(new MACSigner(signerKey.getBytes()));
 
             return jwsObject.serialize();
-
         } catch (JOSEException e) {
-
-            log.error("Cannot Create JWT", e);
-
-            throw AuthError.UNAUTHORIZED.exception();
-
+            log.error("Failed to create JWT for user: {}", user.getUsername(), e);
+            throw new AuthException(AuthError.UNAUTHORIZED);
         }
     }
 
     public TokenResponseDto refreshToken(String refreshToken) {
-
         try {
+            log.info("Refreshing token: {}", refreshToken);
 
-            log.info("{}, refresh token: {}", this.getClass().getSimpleName(), refreshToken);
-
+            // Decode the JWT and retrieve the subject (username)
             String username = decodeJwt(refreshToken, MacAlgorithm.HS512).getSubject();
 
-            User user = userRepository.findByUsername(username).orElseThrow((AuthError.INVALID_USERNAME_OR_PASSWORD::exception));
+            // Retrieve the user by username or throw an error if not found
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new AuthException(AuthError.INVALID_USERNAME_OR_PASSWORD));
 
-            TokenResponseDto tokenResponseDto = new TokenResponseDto(generateToken(user, 1, TokenType.ACCESS_TOKEN), refreshToken);
+            // Generate a new access token
+            String newAccessToken = generateToken(user, 1, TokenType.ACCESS_TOKEN);
 
-            log.info("{}, token refreshed: {}", this.getClass().getSimpleName(), refreshToken);
+            log.info("Token successfully refreshed for user: {}", username);
 
-            return tokenResponseDto;
-
+            return TokenResponseDto.builder()
+                    .accessToken(newAccessToken)
+                    .refreshToken(refreshToken)
+                    .build();
         } catch (Exception e) {
-
-            log.error("{}, Error while refresh token: {}", this.getClass().getSimpleName(), refreshToken);
-
-            throw e;
-
+            log.error("Error while refreshing token: {}", refreshToken, e);
+            throw new AuthException(AuthError.INVALID_TOKEN);
         }
     }
 

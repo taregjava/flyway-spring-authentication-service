@@ -1,37 +1,25 @@
 package com.halfacode.flyway_spring.authentication.error;
-import com.halfacode.flyway_spring.shared.base.Error;
+
 import org.springframework.http.HttpStatus;
-public enum AuthError implements Error {
 
+public enum AuthError {
     INVALID_USERNAME_OR_PASSWORD(HttpStatus.UNAUTHORIZED, "Invalid username or password"),
-
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid token"),
-
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Unauthorized");
 
-    AuthError(HttpStatus code, String message) {
+    private final HttpStatus status;
+    private final String message;
 
-        this.code = code;
-
+    AuthError(HttpStatus status, String message) {
+        this.status = status;
         this.message = message;
-
     }
 
-    public final HttpStatus code;
-
-    public final String message;
-
-    @Override
-    public HttpStatus getCode() {
-
-        return code;
-
+    public HttpStatus getStatus() {
+        return status;
     }
 
-    @Override
     public String getMessage() {
-
         return message;
-
     }
 }
